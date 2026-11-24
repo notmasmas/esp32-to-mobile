@@ -10,22 +10,6 @@ function initializeDatabase() {
         console.log('Conectado ao SQLite!');
     });
 
-    db.run(queries.CREATE_SENSOR_TABLE,
-        [], (err) => {
-        if (err) {
-            console.log('ERRO: não foi possível criar a tabela de sensores');
-            throw err;
-        }
-    });
-
-    db.run(queries.CREATE_SENSOR_CONFIG_TABLE,
-            [], (err) => {
-            if (err) {
-                console.log('ERRO: não foi possível criar a tabela de configuração do sensor.');
-                throw err;
-            }
-        }); 
-
     db.run(queries.CREATE_SENSOR_HISTORY_TABLE,
         [], (err) => {
            if (err) {

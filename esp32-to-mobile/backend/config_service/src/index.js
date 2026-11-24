@@ -8,7 +8,7 @@ db = initializeDatabase();
 app.use(express.json());
 
 const DEFAULT_THRESHOLD = 5;
-const PORT = 8000;
+const PORT = 8080;
 
 // Registra um sensor no back-end. Também cria uma configuração padrão para ele (threshold = 5)
 
@@ -16,25 +16,48 @@ app.post('/sensor', (req, res) => {
     const { sensorId, sensorName } = req.body;
 
     if (!sensorId || !sensorName) {
-        res.status(400).send("ID e nome do sensor devem ser informados");
+        return res.status(400).send("ID e nome do sensor devem ser informados");
     }
 
-    db.run(queries.INSERT_SENSOR,
-         [sensorId, sensorName], (err) => {
-        if (err) {
-            res.status(500).send('Erro ao cadastrar sensor');
-        } else {
-            res.status(201).send('Sensor cadastrado com sucesso');
-        }
-    });
+    db.serialize(() => {
+        db.run(queries.BEGIN_TRANSACTION, (beginError) => {
+            if (beginError) {
+                console.error('Erro ao iniciar cadastro do sensor:', beginError);
+                return res.status(500).send('Erro ao cadastrar sensor');
+            }
 
-    db.run(queries.INSERT_SENSOR_CONFIG,
-         [sensorId, DEFAULT_THRESHOLD], (err) => {
-        if (err) {
-            res.status(500).send('Erro ao cadastrar configuração padrão do sensor');
-        } else {
-            res.status(201).send('Configuração padrão do sensor cadastrada com sucesso');
-        }
+            const rollbackAndRespond = (error, message) => {
+                console.error(message, error);
+                db.run(queries.ROLLBACK_TRANSACTION, (rollbackError) => {
+                    if (rollbackError) {
+                        console.error('Erro ao desfazer cadastro do sensor:', rollbackError);
+                    }
+                    res.status(500).send(message);
+                });
+            };
+
+            db.run(queries.INSERT_SENSOR, [sensorId, sensorName], (sensorError) => {
+                if (sensorError) {
+                    return rollbackAndRespond(sensorError, 'Erro ao cadastrar sensor');
+                }
+
+                db.run(queries.INSERT_SENSOR_CONFIG, [sensorId, DEFAULT_THRESHOLD], (configError) => {
+                    if (configError) {
+                        return rollbackAndRespond(
+                            configError,
+                            'Erro ao cadastrar configuração padrão do sensor'
+                        );
+                    }
+
+                    db.run(queries.COMMIT_TRANSACTION, (commitError) => {
+                        if (commitError) {
+                            return rollbackAndRespond(commitError, 'Erro ao cadastrar sensor');
+                        }
+                        res.status(201).send('Sensor cadastrado com sucesso');
+                    });
+                });
+            });
+        });
     });
 });
 
@@ -44,7 +67,7 @@ app.get('/sensor/config/:sensorId', (req, res) => {
     const sensorId = req.params?.sensorId;
 
     if (!sensorId) {
-        res.status(400).send("ID do sensor deve ser informado");
+        return res.status(400).send("ID do sensor deve ser informado");
     }
 
     db.get(queries.GET_SENSOR_CONFIG,
@@ -66,7 +89,7 @@ app.put('/sensor/config/:sensorId', (req, res) => {
     const sensorId = req.params?.sensorId;
 
     if (!sensorId) {
-        res.status(400).send("ID do sensor deve ser informado");
+        return res.status(400).send("ID do sensor deve ser informado");
     }
 
     db.run(queries.UPDATE_SENSOR_CONFIG,
@@ -88,7 +111,7 @@ app.get('/sensor/history/:sensorId', (req, res) => {
     const sensorId = req.params?.sensorId;
 
     if (sensorId == undefined) {
-        res.status(400).send('ID do sensor deve ser informado');
+        return res.status(400).send('ID do sensor deve ser informado');
     }
 
     db.all(queries.GET_SENSOR_HISTORY,
@@ -110,11 +133,11 @@ app.post('/sensor/history/:sensorId', (req, res) => {
     const sensorId = req.params.sensorId;
 
     if (sensorId == undefined) {
-        res.status(400).send('ID do sensor deve ser informado');
+        return res.status(400).send('ID do sensor deve ser informado');
     }
 
     if (req.body?.reportedValue == undefined) {
-        res.status(400).send('Valor reportado não foi informado');
+        return res.status(400).send('Valor reportado não foi informado');
     }
 
     db.run(queries.INSERT_SENSOR_HISTORY,
